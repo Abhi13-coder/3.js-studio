@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <title>3.js Studio – Mobile WebGL Engine</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 100%; height: 100%;
+      overflow: hidden;
+      background: #0a0a0f;
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-touch-callout: none;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    #canvas-container {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%;
+    }
+    canvas {
+      display: block;
+      width: 100% !important;
+      height: 100% !important;
+      touch-action: none;
+    }
+    /* Top utility bar */
+    #toolbar {
+      position: absolute; top: 0; left: 0; right: 0;
+      height: 48px;
+      background: rgba(12,12,20,0.92);
+      backdrop-filter: blur(12px);
+      display: flex; align-items: center; gap: 8px;
+      padding: 0 12px;
+      z-index: 100;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+    .tb-btn {
+      height: 34px; min-width: 64px;
+      padding: 0 14px;
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 8px;
+      background: rgba(255,255,255,0.06);
+      color: #e8e8f0;
+      font-size: 13px; font-weight: 600;
+      cursor: pointer;
+      touch-action: manipulation;
+    }
+    .tb-btn:active { background: rgba(255,255,255,0.18); }
+    .tb-btn.active { background: #3b82f6; border-color: #60a5fa; color: #fff; }
+    .tb-btn.danger { background: rgba(239,68,68,0.2); border-color: rgba(239,68,68,0.5); }
+    .tb-spacer { flex: 1; }
+    #mode-label {
+      color: #94a3b8; font-size: 12px; font-weight: 500;
+      padding: 0 8px;
+    }
+    /* Properties dashboard */
+    #inspector {
+      position: absolute; top: 48px; right: 0;
+      width: 280px; max-width: 40vw;
+      height: calc(100% - 48px);
+      background: rgba(12,12,20,0.94);
+      backdrop-filter: blur(16px);
+      border-left: 1px solid rgba(255,255,255,0.08);
+      z-index: 90;
+      overflow-y: auto;
+      padding: 12px;
+      transform: translateX(100%);
+      transition: transform 0.25s ease;
+    }
+    #inspector.open { transform: translateX(0); }
+    #inspector h3 {
+      color: #e2e8f0; font-size: 13px; font-weight: 600;
+      margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.05em;
+    }
+    .prop-row {
+      display: flex; align-items: center; gap: 8px;
+      margin-bottom: 8px;
+    }
+    .prop-row label {
+      color: #94a3b8; font-size: 12px; width: 70px; flex-shrink: 0;
+    }
+    .prop-row input, .prop-row select, .prop-row textarea {
+      flex: 1;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 6px;
+      color: #f1f5f9;
+      font-size: 13px;
+      padding: 6px 8px;
+      outline: none;
+    }
+    .prop-row textarea { min-height: 80px; resize: vertical; font-family: ui-monospace, monospace; }
+    /* Virtual joystick */
+    #joystick-zone {
+      position: absolute; bottom: 24px; left: 24px;
+      width: 140px; height: 140px;
+      z-index: 80;
+      touch-action: none;
+    }
+    #joystick-base {
+      width: 100%; height: 100%;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.08);
+      border: 2px solid rgba(255,255,255,0.18);
+      position: relative;
+    }
+    #joystick-knob {
+      width: 56px; height: 56px;
+      border-radius: 50%;
+      background: rgba(59,130,246,0.85);
+      border: 2px solid rgba(255,255,255,0.4);
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    }
+    /* FPS / status */
+    #status {
+      position: absolute; bottom: 12px; right: 12px;
+      color: #64748b; font-size: 11px;
+      z-index: 70; pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="canvas-container"></div>
+
+  <div id="toolbar">
+    <button class="tb-btn active" id="btn-edit" onclick="setMode('edit')">Edit</button>
+    <button class="tb-btn" id="btn-play" onclick="setMode('play')">Play</button>
+    <button class="tb-btn" onclick="toggleInspector()">Inspector</button>
+    <button class="tb-btn" onclick="addCube()">+ Cube</button>
+    <button class="tb-btn" onclick="generateTerrain()">Terrain</button>
+    <button class="tb-btn" onclick="addWater()">Water</button>
+    <div class="tb-spacer"></div>
+    <span id="mode-label">EDIT MODE</span>
+    <button class="tb-btn danger" onclick="resetScene()">Reset</button>
+  </div>
+
+  <div id="inspector">
+    <h3>Object Properties</h3>
+    <div class="prop-row"><label>Name</label><input id="prop-name" type="text" value="—" /></div>
+    <div class="prop-row"><label>Pos X</label><input id="prop-px" type="number" step="0.1" value="0" /></div>
+    <div class="prop-row"><label>Pos Y</label><input id="prop-py" type="number" step="0.1" value="0" /></div>
+    <div class="prop-row"><label>Pos Z</label><input id="prop-pz" type="number" step="0.1" value="0" /></div>
+    <div class="prop-row"><label>Mass</label><input id="prop-mass" type="number" step="0.1" value="1" /></div>
+    <h3 style="margin-top:16px">Script</h3>
+    <div class="prop-row">
+      <textarea id="prop-script" placeholder="// onStart(mesh, body) {}\n// onUpdate(mesh, body, dt, inputs) {}"></textarea>
+    </div>
+    <button class="tb-btn" style="width:100%;margin-top:8px" onclick="applyProperties()">Apply</button>
+  </div>
+
+  <div id="joystick-zone">
+    <div id="joystick-base">
+      <div id="joystick-knob"></div>
+    </div>
+  </div>
+
+  <div id="status">FPS: — | Objects: 0</div>
+
+  <!-- CDN Dependencies (32-bit safe, no WASM) -->
+  <!-- Graphics Core: Three.js (r128 classic build – pure JS) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <!-- Layout Orbit Navigation -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <!-- Visual Interaction Transform Gizmos -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/TransformControls.js"></script>
+  <!-- Physics Engine Core (Asm.js pure fallback – Rapier JS build) -->
+  <script src="https://unpkg.com/@dimforge/rapier3d-compat@0.11.2/rapier.es.js"></script>
+
+  <script type="module">
+    import { Engine } from './js/Engine.js';
+    import { PhysicsWorld } from './js/Physics.js';
+    import { ScriptEngine } from './js/ScriptEngine.js';
+    import { TerrainGenerator, WaterMesh } from './js/Generators.js';
+
+    // Global runtime
+    window.engine = null;
+    window.physics = null;
+    window.scriptEngine = null;
+    window.mode = 'edit'; // 'edit' | 'play'
+    window.selected = null;
+    window.inputs = { x: 0, y: 0 }; // joystick -1..1
+
+    async function boot() {
+      const container = document.getElementById('canvas-container');
+      window.engine = new Engine(container);
+      window.physics = new PhysicsWorld();
+      await window.physics.init();
+      window.scriptEngine = new ScriptEngine();
+
+      // Default scene
+      addCube();
+      engine.start();
+      updateStatus();
+    }
+
+    window.setMode = function(m) {
+      window.mode = m;
+      document.getElementById('btn-edit').classList.toggle('active', m === 'edit');
+      document.getElementById('btn-play').classList.toggle('active', m === 'play');
+      document.getElementById('mode-label').textContent = m === 'edit' ? 'EDIT MODE' : 'PLAY MODE';
+      if (m === 'play') {
+        scriptEngine.compileAll(engine.scene, physics);
+        scriptEngine.callOnStart();
+        if (engine.transformControls) engine.transformControls.detach();
+      } else {
+        // freeze physics bodies in edit
+        physics.freezeAll();
+      }
+    };
+
+    window.toggleInspector = function() {
+      document.getElementById('inspector').classList.toggle('open');
+    };
+
+    window.addCube = function() {
+      const geo = new THREE.BoxGeometry(1, 1, 1);
+      const mat = new THREE.MeshStandardMaterial({ color: 0x3b82f6, roughness: 0.4, metalness: 0.1 });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(0, 2, 0);
+      mesh.name = 'Cube_' + (engine.scene.children.length);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.userData.script = '';
+      mesh.userData.mass = 1;
+      engine.scene.add(mesh);
+      physics.addRigidBody(mesh, { type: 'dynamic', mass: 1 });
+      selectObject(mesh);
+      updateStatus();
+    };
+
+    window.generateTerrain = function() {
+      const terrain = TerrainGenerator.create(64, 64, 20, 4);
+      engine.scene.add(terrain.mesh);
+      physics.addHeightfield(terrain);
+      updateStatus();
+    };
+
+    window.addWater = function() {
+      const water = WaterMesh.create(40, 40, 32);
+      engine.scene.add(water);
+      updateStatus();
+    };
+
+    window.resetScene = function() {
+      while (engine.scene.children.length) {
+        const c = engine.scene.children[0];
+        engine.scene.remove(c);
+        if (c.geometry) c.geometry.dispose();
+        if (c.material) c.material.dispose();
+      }
+      physics.clear();
+      // re-add lights + ground
+      engine.setupDefaultLighting();
+      updateStatus();
+    };
+
+    window.selectObject = function(mesh) {
+      window.selected = mesh;
+      if (engine.transformControls && mode === 'edit') {
+        engine.transformControls.attach(mesh);
+      }
+      // fill inspector
+      document.getElementById('prop-name').value = mesh.name || '—';
+      document.getElementById('prop-px').value = mesh.position.x.toFixed(2);
+      document.getElementById('prop-py').value = mesh.position.y.toFixed(2);
+      document.getElementById('prop-pz').value = mesh.position.z.toFixed(2);
+      document.getElementById('prop-mass').value = mesh.userData.mass || 1;
+      document.getElementById('prop-script').value = mesh.userData.script || '';
+    };
+
+    window.applyProperties = function() {
+      if (!selected) return;
+      selected.name = document.getElementById('prop-name').value;
+      selected.position.x = parseFloat(document.getElementById('prop-px').value) || 0;
+      selected.position.y = parseFloat(document.getElementById('prop-py').value) || 0;
+      selected.position.z = parseFloat(document.getElementById('prop-pz').value) || 0;
+      selected.userData.mass = parseFloat(document.getElementById('prop-mass').value) || 1;
+      selected.userData.script = document.getElementById('prop-script').value;
+      physics.syncFromMesh(selected);
+    };
+
+    function updateStatus() {
+      const count = engine ? engine.scene.children.filter(c => c.isMesh).length : 0;
+      document.getElementById('status').textContent =
+        `FPS: ${engine ? engine.fps : '—'} | Objects: ${count} | Mode: ${mode}`;
+    }
+    setInterval(updateStatus, 500);
+
+    // Joystick logic
+    (function setupJoystick() {
+      const zone = document.getElementById('joystick-zone');
+      const knob = document.getElementById('joystick-knob');
+      const base = document.getElementById('joystick-base');
+      let active = false, startX = 0, startY = 0;
+      const maxR = 42;
+
+      function onStart(e) {
+        e.preventDefault();
+        active = true;
+        const t = e.touches ? e.touches[0] : e;
+        const rect = base.getBoundingClientRect();
+        startX = rect.left + rect.width / 2;
+        startY = rect.top + rect.height / 2;
+      }
+      function onMove(e) {
+        if (!active) return;
+        e.preventDefault();
+        const t = e.touches ? e.touches[0] : e;
+        let dx = t.clientX - startX;
+        let dy = t.clientY - startY;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist > maxR) {
+          dx = (dx / dist) * maxR;
+          dy = (dy / dist) * maxR;
+        }
+        knob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+        window.inputs.x = dx / maxR;
+        window.inputs.y = -dy / maxR; // invert Y for typical forward
+      }
+      function onEnd(e) {
+        active = false;
+        knob.style.transform = 'translate(-50%, -50%)';
+        window.inputs.x = 0;
+        window.inputs.y = 0;
+      }
+      zone.addEventListener('touchstart', onStart, { passive: false });
+      zone.addEventListener('touchmove', onMove, { passive: false });
+      zone.addEventListener('touchend', onEnd);
+      zone.addEventListener('mousedown', onStart);
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onEnd);
+    })();
+
+    // Raycast select on click/tap
+    window.addEventListener('pointerdown', (e) => {
+      if (mode !== 'edit' || e.target.closest('#toolbar') || e.target.closest('#inspector') || e.target.closest('#joystick-zone')) return;
+      const rect = engine.renderer.domElement.getBoundingClientRect();
+      const mouse = new THREE.Vector2(
+        ((e.clientX - rect.left) / rect.width) * 2 - 1,
+        -((e.clientY - rect.top) / rect.height) * 2 + 1
+      );
+      const raycaster = new THREE.Raycaster();
+      raycaster.setFromCamera(mouse, engine.camera);
+      const hits = raycaster.intersectObjects(engine.scene.children, true);
+      if (hits.length) {
+        let obj = hits[0].object;
+        while (obj.parent && !obj.isMesh) obj = obj.parent;
+        if (obj.isMesh) selectObject(obj);
+      }
+    });
+
+    boot().catch(err => {
+      console.error('Boot failed', err);
+      document.getElementById('status').textContent = 'Boot error: ' + err.message;
+    });
+  </script>
+</body>
+</html>
